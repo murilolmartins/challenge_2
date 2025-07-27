@@ -8,7 +8,10 @@ from genetic_methods import (
     generate_initial_individuals,
     tournament_selection,
     two_point_crossover,
-    mutate_individual
+    mutate_individual,
+    check_and_merge_trips,
+    is_population_stagnated,
+    diversify_population
 )
 
 
@@ -74,6 +77,11 @@ def run_genetic_algorithm(
     best_overall_trip_volumes = {}
     current_generation = 0
 
+    # Adiciona histórico de fitness para detectar estagnação
+    fitness_history = []
+    generations_without_improvement = 0
+    best_fitness_ever = float('inf')
+
     # Loop Principal do Pygame e GA
     running = True
     ga_step_counter = 0
@@ -86,25 +94,56 @@ def run_genetic_algorithm(
 
         # --- Lógica do Algoritmo Genético (Executado por GA_STEPS_PER_FRAME) ---
         if ga_step_counter < num_generations:
-
-            # 1. Avaliar a população atual e encontrar os melhores indivíduos
+            # 1. Avaliar a população atual
             evaluated_population = []
             for individual in current_population:
+                # Tenta melhorar o indivíduo antes de avaliar
+                optimized_individual = check_and_merge_trips(
+                    list(individual), item_population_volumes, truck_capacity)
                 fitness_result = calculate_fitness(
-                    individual, item_population_volumes, truck_capacity)
-                evaluated_population.append((individual, fitness_result))
+                    optimized_individual, item_population_volumes, truck_capacity)
+                evaluated_population.append(
+                    (optimized_individual, fitness_result))
 
-            # Ordenar a população por fitness (menor é melhor)
+            # Ordenar por fitness
             evaluated_population.sort(key=lambda x: x[1]['fitness'])
 
-            # Atualizar a melhor solução global
+            # Atualizar histórico de fitness
+            current_best_fitness = evaluated_population[0][1]['fitness']
+            fitness_history.append(current_best_fitness)
+
+            # Verificar melhoria
+            if current_best_fitness < best_fitness_ever:
+                best_fitness_ever = current_best_fitness
+                generations_without_improvement = 0
+            else:
+                generations_without_improvement += 1
+
+            # Atualizar melhor solução global
             current_best_individual, current_best_fitness_result = evaluated_population[0]
             if current_best_fitness_result['fitness'] < best_overall_fitness:
                 best_overall_fitness = current_best_fitness_result['fitness']
                 best_overall_solution = current_best_individual
                 best_overall_trip_volumes = current_best_fitness_result['trip_volumes']
 
-            # 2. Preparar para a próxima geração
+            # Verificar estagnação
+            if is_population_stagnated(fitness_history) or generations_without_improvement >= 100:
+                print(
+                    f"Estagnação detectada na geração {current_generation}. Diversificando população...")
+                # Extrair apenas os indivíduos (sem o fitness) da população avaliada
+                individuals_only = [ind for ind, _ in evaluated_population]
+                current_population = diversify_population(
+                    individuals_only,  # Passa apenas os indivíduos, não as tuplas
+                    item_population_volumes,
+                    truck_capacity,
+                    mutation_rate,
+                    max_possible_trip_for_mutation
+                )
+                generations_without_improvement = 0
+                fitness_history = []  # Reinicia o histórico de fitness
+                continue
+
+            # 2. Preparar próxima geração
             next_generation_population = []
 
             # --- Elitismo ---
@@ -113,7 +152,7 @@ def run_genetic_algorithm(
                 # Pega apenas o indivíduo (cromossomo)
                 next_generation_population.append(evaluated_population[i][0])
 
-            # Preencher o restante da nova população
+            # Preencher o resto da população
             # A seleção e cruzamento/mutação gerarão 'population_size - num_elite_individuals' novos indivíduos
             while len(next_generation_population) < population_size:
                 # 3. Seleção
@@ -136,11 +175,17 @@ def run_genetic_algorithm(
                 mutated_child2 = mutate_individual(
                     child2, mutation_rate, max_possible_trip_for_mutation)
 
+                # Otimização local dos filhos
+                optimized_child1 = check_and_merge_trips(
+                    mutated_child1, item_population_volumes, truck_capacity)
+                optimized_child2 = check_and_merge_trips(
+                    mutated_child2, item_population_volumes, truck_capacity)
+
                 # Adicionar filhos à próxima geração (garantir limite de population_size)
                 if len(next_generation_population) < population_size:
-                    next_generation_population.append(mutated_child1)
+                    next_generation_population.append(optimized_child1)
                 if len(next_generation_population) < population_size:
-                    next_generation_population.append(mutated_child2)
+                    next_generation_population.append(optimized_child2)
 
             current_population = next_generation_population
             current_generation += 1
@@ -150,6 +195,8 @@ def run_genetic_algorithm(
             if current_generation % 10 == 0 or current_generation == 1:
                 print(
                     f"Geração: {current_generation}/{num_generations}, Melhor Fitness: {best_overall_fitness}")
+                print(
+                    f"Gerações sem melhoria: {generations_without_improvement}")
 
         # --- Lógica de Desenho do Pygame ---
         screen.fill(WHITE)  # Limpar tela

@@ -101,11 +101,21 @@ def calculate_fitness(individual_plan, all_item_volumes, truck_capacity):
 
     # Mapear volumes por viagem
     for item_index, assigned_trip in enumerate(individual_plan):
+        # Validar tipo e valor de assigned_trip
+        if not isinstance(assigned_trip, (int, float)) or isinstance(assigned_trip, list):
+            return {
+                'fitness': float('inf'),
+                'is_valid': False,
+                'trip_volumes': trip_volumes,
+                'error': f'Trip assignment deve ser um número, não {type(assigned_trip)}'
+            }
+
         if item_index >= len(all_item_volumes) or assigned_trip < 0:
             return {
                 'fitness': float('inf'),
                 'is_valid': False,
-                'trip_volumes': trip_volumes
+                'trip_volumes': trip_volumes,
+                'error': 'Índice de item inválido ou viagem negativa'
             }
 
         item_volume = all_item_volumes[item_index]
@@ -309,6 +319,10 @@ def mutate_individual(individual, mutation_rate, max_possible_trip_number):
     """
     Aplica mutação a um indivíduo de forma mais suave, com pequenas alterações.
     """
+    # Garantir que individual é uma lista e não um dicionário
+    if isinstance(individual, dict):
+        return list(individual.values())
+
     mutated_individual = list(individual)
 
     if not mutated_individual:
@@ -318,18 +332,23 @@ def mutate_individual(individual, mutation_rate, max_possible_trip_number):
 
     for i in range(len(mutated_individual)):
         if random.random() < mutation_rate:
+            # Garantir que o valor atual é um número
+            try:
+                current_trip = int(mutated_individual[i])
+            except (ValueError, TypeError):
+                # Se não for possível converter para número, usa 0
+                current_trip = 0
+
             # Mutação mais suave: 50% de chance de incrementar/decrementar
             # e 50% de chance de atribuir um valor aleatório
             if random.random() < 0.5:
                 # Mutação suave: incrementa ou decrementa em 1
-                current_trip = mutated_individual[i]
                 delta = random.choice([-1, 1])
                 new_trip = max(
                     0, min(max_trip_idx_for_mutation, current_trip + delta))
                 mutated_individual[i] = new_trip
             else:
                 # Mutação aleatória: mas com preferência por valores próximos
-                current_trip = mutated_individual[i]
                 variation = random.randint(1, 3)  # Varia em até 3 viagens
                 if random.random() < 0.5:
                     variation = -variation
@@ -338,3 +357,206 @@ def mutate_individual(individual, mutation_rate, max_possible_trip_number):
                 mutated_individual[i] = new_trip
 
     return mutated_individual
+
+
+def is_population_stagnated(fitness_history, stagnation_window=50, improvement_threshold=0.001):
+    """
+    Verifica se a população está estagnada comparando o progresso das últimas gerações.
+    """
+    if len(fitness_history) < stagnation_window:
+        return False
+
+    recent_fitness = fitness_history[-stagnation_window:]
+    initial_fitness = recent_fitness[0]
+    final_fitness = recent_fitness[-1]
+
+    # Se não houve melhoria significativa
+    improvement = (initial_fitness - final_fitness) / initial_fitness
+    return improvement < improvement_threshold
+
+
+def diversify_population(population, item_volumes, truck_capacity, mutation_rate, max_possible_trip_number):
+    """
+    Diversifica a população quando há estagnação.
+    Mantém os 10% melhores e recria o resto com foco em soluções diferentes.
+    """
+    population_size = len(population)
+    elite_size = max(1, population_size // 10)  # Mantém 10% dos melhores
+
+    # Garantir que todos os indivíduos são listas válidas
+    valid_population = []
+    for ind in population:
+        if isinstance(ind, tuple):  # Se for tupla (indivíduo, fitness)
+            ind = ind[0]
+        if isinstance(ind, dict):  # Se for dicionário
+            ind = list(ind.values())
+        if isinstance(ind, list):
+            valid_population.append(ind)
+
+    if not valid_population:
+        # Se não temos indivíduos válidos, criar nova população do zero
+        return generate_initial_individuals(item_volumes, population_size, truck_capacity, [0, max_possible_trip_number])
+
+    # Avalia e ordena a população atual
+    evaluated_pop = []
+    for ind in valid_population:
+        fitness_result = calculate_fitness(ind, item_volumes, truck_capacity)
+        if fitness_result['is_valid']:
+            evaluated_pop.append((ind, fitness_result))
+
+    if not evaluated_pop:
+        # Se não temos indivíduos válidos após avaliação
+        return generate_initial_individuals(item_volumes, population_size, truck_capacity, [0, max_possible_trip_number])
+
+    # Ordena por fitness
+    evaluated_pop.sort(key=lambda x: x[1]['fitness'])
+
+    # Mantém a elite
+    new_population = [ind for ind, _ in evaluated_pop[:elite_size]]
+
+    # Lista de estratégias de diversificação
+    diversification_strategies = [
+        lambda x: mutate_individual(
+            # Mutação agressiva
+            x, min(1.0, mutation_rate * 3), max_possible_trip_number),
+        # Embaralha segmentos do indivíduo
+        lambda x: random_shuffle_segments(x),
+        lambda x: invert_segments(x),  # Inverte segmentos do indivíduo
+    ]
+
+    # Contador para evitar loop infinito
+    max_attempts = population_size * 10
+    attempts = 0
+
+    # Para o resto da população, cria novos indivíduos com diferentes estratégias
+    while len(new_population) < population_size and attempts < max_attempts:
+        attempts += 1
+
+        # Escolhe um indivíduo base da elite
+        base_individual = list(random.choice(new_population))
+
+        # Escolhe uma estratégia de diversificação aleatória
+        strategy = random.choice(diversification_strategies)
+        mutated = strategy(base_individual)
+
+        # Verifica se o indivíduo gerado é válido
+        if not isinstance(mutated, list):
+            continue
+
+        fitness_result = calculate_fitness(
+            mutated, item_volumes, truck_capacity)
+        if fitness_result['is_valid']:
+            new_population.append(mutated)
+
+    # Se não conseguimos gerar população suficiente, completa com indivíduos aleatórios
+    while len(new_population) < population_size:
+        new_ind = generate_initial_individuals(item_volumes, 1, truck_capacity, [
+                                               0, max_possible_trip_number])
+        if new_ind:
+            new_population.append(new_ind[0])
+
+    return new_population
+
+
+def random_shuffle_segments(individual):
+    """
+    Embaralha segmentos do indivíduo para criar variação
+    """
+    if len(individual) < 2:
+        return individual
+
+    result = list(individual)
+    segment_size = max(2, len(result) // 4)
+
+    # Divide em segmentos e embaralha
+    segments = [result[i:i + segment_size]
+                for i in range(0, len(result), segment_size)]
+    random.shuffle(segments)
+
+    # Reconstrói o indivíduo
+    result = []
+    for segment in segments:
+        result.extend(segment)
+
+    return result
+
+
+def invert_segments(individual):
+    """
+    Inverte segmentos aleatórios do indivíduo
+    """
+    if len(individual) < 2:
+        return individual
+
+    result = list(individual)
+    segment_size = max(2, len(result) // 4)
+
+    # Escolhe um segmento aleatório para inverter
+    start = random.randint(0, len(result) - segment_size)
+    end = start + segment_size
+
+    # Inverte o segmento
+    result[start:end] = reversed(result[start:end])
+
+    return result
+
+
+def check_and_merge_trips(individual, item_volumes, truck_capacity):
+    """
+    Tenta melhorar uma solução verificando se é possível combinar viagens.
+    """
+    if not individual:
+        return individual
+
+    # Garantir que individual é uma lista
+    if isinstance(individual, dict):
+        individual = list(individual.values())
+
+    # Mapeia os volumes por viagem
+    trip_volumes = {}
+    for item_idx, trip in enumerate(individual):
+        # Garantir que trip é um número
+        try:
+            trip_number = int(trip) if isinstance(
+                trip, (int, float, str)) else 0
+            if isinstance(trip, list):
+                trip_number = 0  # valor padrão para listas
+        except (ValueError, TypeError):
+            trip_number = 0  # valor padrão para conversões inválidas
+
+        if trip_number not in trip_volumes:
+            trip_volumes[trip_number] = 0
+        trip_volumes[trip_number] += item_volumes[item_idx]
+
+    # Tenta combinar viagens parcialmente preenchidas
+    trips = sorted(trip_volumes.keys())
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(trips)):
+            for j in range(i + 1, len(trips)):
+                trip1, trip2 = trips[i], trips[j]
+                # Se as duas viagens juntas não excedem a capacidade
+                if trip_volumes[trip1] + trip_volumes[trip2] <= truck_capacity:
+                    # Combina as viagens
+                    for idx in range(len(individual)):
+                        # Garantir que estamos comparando números
+                        current_trip = individual[idx]
+                        if isinstance(current_trip, list):
+                            current_trip = 0
+                        try:
+                            current_trip = int(current_trip)
+                        except (ValueError, TypeError):
+                            current_trip = 0
+
+                        if current_trip == trip2:
+                            individual[idx] = trip1
+                    trip_volumes[trip1] += trip_volumes[trip2]
+                    del trip_volumes[trip2]
+                    trips.remove(trip2)
+                    improved = True
+                    break
+            if improved:
+                break
+
+    return individual
