@@ -18,7 +18,6 @@ from genetic_methods import (
 def run_genetic_algorithm(
     num_items,
     max_item_volume,
-    max_total_volume,
     truck_capacity,
     population_size,
     num_generations,
@@ -64,7 +63,7 @@ def run_genetic_algorithm(
     big_font = pygame.font.Font(None, 36)
 
     # Configuração do GA
-    item_population_volumes = generate_population(num_items, max_item_volume, max_total_volume)
+    item_population_volumes = generate_population(num_items, max_item_volume)
     travel_bounds = generate_max_number_of_travels(
         item_population_volumes, truck_capacity)
     max_possible_trip_for_mutation = travel_bounds[1]
@@ -207,8 +206,11 @@ def run_genetic_algorithm(
             f"Geração: {current_generation}/{num_generations}", True, BLACK)
         fitness_text = font.render(
             f"Melhor Fitness (Viagens): {best_overall_fitness}", True, BLACK)
+        best_worst_scenario = font.render(
+            f"Melhor melhor cenario: {travel_bounds[0]}..... pior cenario:  {travel_bounds[1]}", True, BLACK)
         screen.blit(gen_text, (10, 10))
         screen.blit(fitness_text, (10, 40))
+        screen.blit(best_worst_scenario, (10, 60))
 
         # Visualizar a Melhor Solução Global, se disponível
         if best_overall_solution and best_overall_fitness != float('inf'):
@@ -219,9 +221,9 @@ def run_genetic_algorithm(
             # Parâmetros de desenho para caminhões e itens
             truck_width = 150
             truck_height = 80
-            truck_padding = 20
-            start_x = 20
-            start_y = 120
+            truck_padding = 40
+            start_x = 40
+            start_y = 150
 
             current_x = start_x
             current_y = start_y
@@ -258,7 +260,7 @@ def run_genetic_algorithm(
                 current_x += truck_width + truck_padding
                 if current_x + truck_width > SCREEN_WIDTH:
                     current_x = start_x
-                    current_y += truck_height + truck_padding + 30
+                    current_y += truck_height + truck_padding + 40
 
         if ga_step_counter >= num_generations:
             final_text = big_font.render("GA Finalizado!", True, RED)
@@ -276,7 +278,6 @@ if __name__ == "__main__":
     # Definir parâmetros do GA
     NUM_TOTAL_ITEMS = 100
     MAX_ITEM_VOL = 20
-    MAX_TOTAL_VOLUME = 55000
     TRUCK_CAPACITY = 100
     POPULATION_SIZE = 200  # Aumentado para maior diversidade
     NUM_GENERATIONS = 1000000
@@ -289,7 +290,6 @@ if __name__ == "__main__":
     run_genetic_algorithm(
         NUM_TOTAL_ITEMS,
         MAX_ITEM_VOL,
-        MAX_TOTAL_VOLUME,
         TRUCK_CAPACITY,
         POPULATION_SIZE,
         NUM_GENERATIONS,

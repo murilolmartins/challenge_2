@@ -2,7 +2,7 @@ import math
 import random
 
 
-def generate_population(population_size, max_volume_per_individual=10, max_volume_general: int = 100) -> list:
+def generate_population(population_size, max_volume_per_individual=10) -> list:
     """    Generates a random population of individuals, where each individual is represented
     by a random volume (integer) between 1 and max_volume_per_individual.
     Args:
@@ -13,7 +13,7 @@ def generate_population(population_size, max_volume_per_individual=10, max_volum
         list: A list of integers representing the volumes of individuals in the population.
     """
     population = []
-
+    max_volume_general = population_size * max_volume_per_individual
     if population_size > 0 and max_volume_per_individual > 0:
         total_volume_generated = 0
         for _ in range(population_size):
