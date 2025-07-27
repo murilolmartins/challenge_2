@@ -229,12 +229,12 @@ if __name__ == "__main__":
     NUM_TOTAL_ITEMS = 100
     MAX_ITEM_VOL = 20
     TRUCK_CAPACITY = 100
-    POPULATION_SIZE = 100
+    POPULATION_SIZE = 200  # Aumentado para maior diversidade
     NUM_GENERATIONS = 1000000
-    CROSSOVER_RATE = 1
-    MUTATION_RATE = 1
-    TOURNAMENT_SIZE = 5
-    NUM_ELITE_INDIVIDUALS = 2  # Número de indivíduos de elite a serem mantidos
+    CROSSOVER_RATE = 0.85
+    MUTATION_RATE = 0.08
+    TOURNAMENT_SIZE = 4
+    NUM_ELITE_INDIVIDUALS = 3  # Aumentado para preservar mais soluções boas
 
     print("Iniciando Algoritmo Genético com Visualização Pygame...")
     run_genetic_algorithm(

@@ -75,32 +75,38 @@ def generate_max_number_of_travels(population, truck_volume):
 
 def calculate_fitness(individual_plan, all_item_volumes, truck_capacity):
     """
-    Calculates the fitness of an individual (loading plan).
-    Fitness is the number of trips required, with a high penalty for invalid plans.
-    Lower fitness value (fewer trips) is better.
+    Calcula o fitness de um indivíduo (plano de carregamento).
+    Considera múltiplos fatores:
+    1. Número de viagens
+    2. Utilização do caminhão (quanto mais próximo da capacidade, melhor)
+    3. Penalizações graduais para violações
 
-    Returns:
-        dict: A dictionary containing:
-              'fitness' (float): The number of trips or float('inf') if invalid.
-              'is_valid' (bool): True if the plan is valid, False otherwise.
-              'trip_volumes' (dict): A dictionary mapping trip numbers to their total volumes.
+    Retorna:
+        dict: Um dicionário contendo:
+              'fitness' (float): O valor de fitness (menor é melhor)
+              'is_valid' (bool): True se o plano é válido
+              'trip_volumes' (dict): Dicionário mapeando número da viagem para volume total
     """
     trip_volumes = {}
     max_trip_number = 0
-    is_valid = True  # Assume valid until a constraint is violated
+    is_valid = True
+    total_penalty = 0
 
-    if not all_item_volumes and not individual_plan:  # Case: No items to transport
+    if not all_item_volumes and not individual_plan:
         return {
             'fitness': 0.0,
             'is_valid': True,
             'trip_volumes': {}
         }
 
+    # Mapear volumes por viagem
     for item_index, assigned_trip in enumerate(individual_plan):
-        # Basic validation for chromosome integrity
         if item_index >= len(all_item_volumes) or assigned_trip < 0:
-            is_valid = False
-            break  # No need to continue if chromosome is malformed
+            return {
+                'fitness': float('inf'),
+                'is_valid': False,
+                'trip_volumes': trip_volumes
+            }
 
         item_volume = all_item_volumes[item_index]
 
@@ -110,27 +116,45 @@ def calculate_fitness(individual_plan, all_item_volumes, truck_capacity):
         trip_volumes[assigned_trip] += item_volume
         max_trip_number = max(max_trip_number, assigned_trip)
 
-        # Constraint check: capacity exceeded
+        # Penalização gradual para excesso de capacidade
         if trip_volumes[assigned_trip] > truck_capacity:
+            excess = trip_volumes[assigned_trip] - truck_capacity
+            # Penalidade proporcional ao excesso
+            penalty = (excess / truck_capacity) * 2
+            total_penalty += penalty
             is_valid = False
-            # We don't break here immediately if you want to see all trip_volumes
-            # but for a pure validity check, breaking here is more efficient.
-            # For this context (initial generation), we can break.
-            break
 
-    if is_valid:
-        return {
-            'fitness': float(max_trip_number + 1),
-            'is_valid': True,
-            'trip_volumes': trip_volumes
-        }
-    else:
-        # If invalid, set fitness to infinity
-        return {
-            'fitness': float('inf'),
-            'is_valid': False,
-            'trip_volumes': trip_volumes  # Still return volumes for debugging invalid ones
-        }
+    # Número base de viagens
+    num_trips = max_trip_number + 1
+    base_fitness = float(num_trips)
+
+    # Calcular utilização média e desvio padrão dos caminhões
+    if trip_volumes:
+        volumes = list(trip_volumes.values())
+        avg_utilization = sum(volumes) / len(volumes)
+
+        # Penalizar utilização muito baixa dos caminhões
+        utilization_penalty = 0
+        for volume in volumes:
+            if volume < truck_capacity * 0.5:  # Menos de 50% utilizado
+                utilization_penalty += 0.5
+            elif volume < truck_capacity * 0.7:  # Menos de 70% utilizado
+                utilization_penalty += 0.2
+
+        # Penalizar distribuição desigual entre caminhões
+        squared_diff_sum = sum((v - avg_utilization) ** 2 for v in volumes)
+        std_dev = (squared_diff_sum / len(volumes)) ** 0.5
+        distribution_penalty = std_dev / truck_capacity
+
+        total_penalty += utilization_penalty + distribution_penalty
+
+    final_fitness = base_fitness + total_penalty
+
+    return {
+        'fitness': final_fitness if is_valid else float('inf'),
+        'is_valid': is_valid,
+        'trip_volumes': trip_volumes
+    }
 
 
 def generate_initial_individuals(population, individuals_number, truck_volume, travel_bounds):
@@ -209,33 +233,30 @@ def tournament_selection(population_with_fitness, k=3) -> list:
     Args:
         population_with_fitness (list of tuples): Uma lista onde cada item é
                                                  (individual, fitness_result_dict).
-                                                 Ex: ( [0,1,0,...], {'fitness': 3.0, 'is_valid': True, ...} )
         k (int): O tamanho do torneio (número de indivíduos a competir).
 
     Returns:
         list: O indivíduo selecionado (o "cromossomo" que é a lista de atribuições de viagens).
     """
     if not population_with_fitness:
-        return []  # Retorna vazio se a população estiver vazia
+        return []
 
-    # Seleciona k indivíduos aleatoriamente para o torneio
-    tournament_competitors = random.sample(population_with_fitness, k)
+    # Aumenta a pressão seletiva ordenando primeiro
+    sorted_population = sorted(
+        population_with_fitness, key=lambda x: x[1]['fitness'])
 
-    # Encontra o melhor indivíduo (menor fitness) entre os competidores
-    # Inicializa com o primeiro competidor
-    best_individual_tuple = tournament_competitors[0]
+    # Seleciona k indivíduos com preferência para os melhores
+    tournament_size = min(k, len(sorted_population))
+    # Dá mais chance para os melhores indivíduos serem selecionados
+    weights = [1/(i+1) for i in range(len(sorted_population))]
+    tournament_competitors = random.choices(
+        sorted_population, weights=weights, k=tournament_size)
 
-    for competitor_tuple in tournament_competitors:
-        # Pega apenas o dicionário de resultado de fitness
-        current_fitness_result = competitor_tuple[1]
-        best_fitness_result = best_individual_tuple[1]
+    # Retorna o melhor do torneio
+    best_individual = min(tournament_competitors,
+                          key=lambda x: x[1]['fitness'])
 
-        # Compara o 'fitness' (número de viagens), lembrando que 'inf' é o pior
-        if current_fitness_result['fitness'] < best_fitness_result['fitness']:
-            best_individual_tuple = competitor_tuple
-
-    # Retorna apenas o indivíduo (o cromossomo)
-    return best_individual_tuple[0]
+    return best_individual[0]
 
 
 def two_point_crossover(parent1, parent2):
@@ -286,36 +307,34 @@ def two_point_crossover(parent1, parent2):
 
 def mutate_individual(individual, mutation_rate, max_possible_trip_number):
     """
-    Aplica mutação a um indivíduo. Cada gene (atribuição de item a viagem)
-    tem uma chance de mutation_rate de ser alterado para um novo número de viagem aleatório.
-
-    Args:
-        individual (list): O indivíduo (cromossomo) a ser mutado.
-        mutation_rate (float): A probabilidade (entre 0 e 1) de cada gene sofrer mutação.
-        max_possible_trip_number (int): O número máximo de viagens que um gene mutado pode assumir (0-based).
-                                        Geralmente, o upper bound da faixa de atribuição de viagens.
-
-    Returns:
-        list: O indivíduo mutado (pode ser uma cópia se nenhuma mutação ocorrer).
+    Aplica mutação a um indivíduo de forma mais suave, com pequenas alterações.
     """
-    # Cria uma cópia mutável do indivíduo para não alterar o original diretamente
     mutated_individual = list(individual)
 
-    # Se não houver itens, não há o que mutar
     if not mutated_individual:
         return mutated_individual
 
-    # Garante que a faixa para mutação seja pelo menos 0 (para a viagem 0)
-    # Se max_possible_trip_number é 0, significa que só existe a viagem 0.
-    # Se for 5, pode ir de 0 a 5.
-    max_trip_idx_for_mutation = max(
-        0, max_possible_trip_number - 1)  # -1 para ser índice 0-based
+    max_trip_idx_for_mutation = max(0, max_possible_trip_number - 1)
 
     for i in range(len(mutated_individual)):
         if random.random() < mutation_rate:
-            # Muta o gene: atribui um novo número de viagem aleatório
-            # O novo número de viagem será entre 0 e max_trip_idx_for_mutation (inclusive)
-            mutated_individual[i] = random.randint(
-                0, max_trip_idx_for_mutation + 1)
+            # Mutação mais suave: 50% de chance de incrementar/decrementar
+            # e 50% de chance de atribuir um valor aleatório
+            if random.random() < 0.5:
+                # Mutação suave: incrementa ou decrementa em 1
+                current_trip = mutated_individual[i]
+                delta = random.choice([-1, 1])
+                new_trip = max(
+                    0, min(max_trip_idx_for_mutation, current_trip + delta))
+                mutated_individual[i] = new_trip
+            else:
+                # Mutação aleatória: mas com preferência por valores próximos
+                current_trip = mutated_individual[i]
+                variation = random.randint(1, 3)  # Varia em até 3 viagens
+                if random.random() < 0.5:
+                    variation = -variation
+                new_trip = max(0, min(max_trip_idx_for_mutation,
+                               current_trip + variation))
+                mutated_individual[i] = new_trip
 
     return mutated_individual
