@@ -2,10 +2,11 @@ import math
 import random
 
 
-def generate_population(population_size, max_volume_per_individual=10) -> list:
+def generate_population(population_size, max_volume_per_individual=10, max_volume_general: int = 100) -> list:
     """    Generates a random population of individuals, where each individual is represented
     by a random volume (integer) between 1 and max_volume_per_individual.
     Args:
+        max_volume_general: Volume total da população
         population_size (int): The number of individuals to generate.
         max_volume_per_individual (int): The maximum volume for each individual.
     Returns:
@@ -14,8 +15,12 @@ def generate_population(population_size, max_volume_per_individual=10) -> list:
     population = []
 
     if population_size > 0 and max_volume_per_individual > 0:
+        total_volume_generated = 0
         for _ in range(population_size):
+            if total_volume_generated > max_volume_general:
+                break
             volume = random.randint(1, max_volume_per_individual + 1)
+            total_volume_generated += volume
             population.append(volume)
     else:
         print("Population size and max volume must be greater than 0.")

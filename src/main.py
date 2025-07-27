@@ -18,6 +18,7 @@ from genetic_methods import (
 def run_genetic_algorithm(
     num_items,
     max_item_volume,
+    max_total_volume,
     truck_capacity,
     population_size,
     num_generations,
@@ -63,7 +64,7 @@ def run_genetic_algorithm(
     big_font = pygame.font.Font(None, 36)
 
     # Configuração do GA
-    item_population_volumes = generate_population(num_items, max_item_volume)
+    item_population_volumes = generate_population(num_items, max_item_volume, max_total_volume)
     travel_bounds = generate_max_number_of_travels(
         item_population_volumes, truck_capacity)
     max_possible_trip_for_mutation = travel_bounds[1]
@@ -275,6 +276,7 @@ if __name__ == "__main__":
     # Definir parâmetros do GA
     NUM_TOTAL_ITEMS = 100
     MAX_ITEM_VOL = 20
+    MAX_TOTAL_VOLUME = 55000
     TRUCK_CAPACITY = 100
     POPULATION_SIZE = 200  # Aumentado para maior diversidade
     NUM_GENERATIONS = 1000000
@@ -287,6 +289,7 @@ if __name__ == "__main__":
     run_genetic_algorithm(
         NUM_TOTAL_ITEMS,
         MAX_ITEM_VOL,
+        MAX_TOTAL_VOLUME,
         TRUCK_CAPACITY,
         POPULATION_SIZE,
         NUM_GENERATIONS,
