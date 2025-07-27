@@ -206,8 +206,11 @@ def run_genetic_algorithm(
             f"Geração: {current_generation}/{num_generations}", True, BLACK)
         fitness_text = font.render(
             f"Melhor Fitness (Viagens): {best_overall_fitness}", True, BLACK)
+        best_worst_scenario = font.render(
+            f"Melhor melhor cenario: {travel_bounds[0]}..... pior cenario:  {travel_bounds[1]}", True, BLACK)
         screen.blit(gen_text, (10, 10))
         screen.blit(fitness_text, (10, 40))
+        screen.blit(best_worst_scenario, (10, 60))
 
         # Visualizar a Melhor Solução Global, se disponível
         if best_overall_solution and best_overall_fitness != float('inf'):
@@ -218,9 +221,9 @@ def run_genetic_algorithm(
             # Parâmetros de desenho para caminhões e itens
             truck_width = 150
             truck_height = 80
-            truck_padding = 20
-            start_x = 20
-            start_y = 120
+            truck_padding = 40
+            start_x = 40
+            start_y = 150
 
             current_x = start_x
             current_y = start_y
@@ -257,7 +260,7 @@ def run_genetic_algorithm(
                 current_x += truck_width + truck_padding
                 if current_x + truck_width > SCREEN_WIDTH:
                     current_x = start_x
-                    current_y += truck_height + truck_padding + 30
+                    current_y += truck_height + truck_padding + 40
 
         if ga_step_counter >= num_generations:
             final_text = big_font.render("GA Finalizado!", True, RED)
