@@ -11,8 +11,10 @@ from genetic_methods import (
     mutate_individual,
     check_and_merge_trips,
     is_population_stagnated,
-    diversify_population
+    diversify_population,
+    fix_trip_sequence
 )
+from generate_fixed_population import load_population_from_file
 
 
 def run_genetic_algorithm(
@@ -42,8 +44,8 @@ def run_genetic_algorithm(
     """
     # Inicialização do Pygame
     pygame.init()
-    SCREEN_WIDTH = 1200
-    SCREEN_HEIGHT = 800
+    SCREEN_WIDTH = 1920
+    SCREEN_HEIGHT = 1080
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption(
         "Algoritmo Genético para Empacotamento de Caminhões")
@@ -59,11 +61,11 @@ def run_genetic_algorithm(
     # ITEM_COLORS já não é usada na visualização atual (barra de preenchimento)
 
     # Fontes
-    font = pygame.font.Font(None, 24)
-    big_font = pygame.font.Font(None, 36)
+    font = pygame.font.Font(None, 16)
+    big_font = pygame.font.Font(None, 24)
 
     # Configuração do GA
-    item_population_volumes = generate_population(num_items, max_item_volume)
+    item_population_volumes = load_population_from_file()
     travel_bounds = generate_max_number_of_travels(
         item_population_volumes, truck_capacity)
     max_possible_trip_for_mutation = travel_bounds[1]
@@ -71,6 +73,8 @@ def run_genetic_algorithm(
     current_population = generate_initial_individuals(
         item_population_volumes, population_size, truck_capacity, travel_bounds
     )
+
+    current_population = [fix_trip_sequence(ind) for ind in current_population]
 
     best_overall_solution = None
     best_overall_fitness = float('inf')
@@ -98,8 +102,7 @@ def run_genetic_algorithm(
             evaluated_population = []
             for individual in current_population:
                 # Tenta melhorar o indivíduo antes de avaliar
-                optimized_individual = check_and_merge_trips(
-                    list(individual), item_population_volumes, truck_capacity)
+                optimized_individual = individual
                 fitness_result = calculate_fitness(
                     optimized_individual, item_population_volumes, truck_capacity)
                 evaluated_population.append(
@@ -127,7 +130,7 @@ def run_genetic_algorithm(
                 best_overall_trip_volumes = current_best_fitness_result['trip_volumes']
 
             # Verificar estagnação
-            if is_population_stagnated(fitness_history) or generations_without_improvement >= 100:
+            if is_population_stagnated(fitness_history) or generations_without_improvement >= 200:
                 print(
                     f"Estagnação detectada na geração {current_generation}. Diversificando população...")
                 # Extrair apenas os indivíduos (sem o fitness) da população avaliada
@@ -187,7 +190,8 @@ def run_genetic_algorithm(
                 if len(next_generation_population) < population_size:
                     next_generation_population.append(optimized_child2)
 
-            current_population = next_generation_population
+            current_population = [fix_trip_sequence(
+                ind) for ind in next_generation_population]
             current_generation += 1
             ga_step_counter += 1
 
@@ -211,24 +215,31 @@ def run_genetic_algorithm(
 
         # Visualizar a Melhor Solução Global, se disponível
         if best_overall_solution and best_overall_fitness != float('inf'):
-            display_solution_text = big_font.render(
-                "Melhor Solução Atual:", True, BLUE)
-            screen.blit(display_solution_text, (10, 80))
 
-            # Parâmetros de desenho para caminhões e itens
-            truck_width = 150
-            truck_height = 80
-            truck_padding = 20
+            # Parâmetros de desenho para caminhões
+            truck_width = 100
+            truck_height = 60
+            truck_padding = 25
             start_x = 20
             start_y = 120
-
             current_x = start_x
             current_y = start_y
 
-            sorted_trip_numbers = sorted(best_overall_trip_volumes.keys())
+            # Criar mapeamento de viagens para itens
+            trip_to_items = {}
+            for item_idx, trip_num in enumerate(best_overall_solution):
+                if trip_num not in trip_to_items:
+                    trip_to_items[trip_num] = []
+                trip_to_items[trip_num].append(
+                    (item_idx, item_population_volumes[item_idx]))
 
+            sorted_trip_numbers = sorted(trip_to_items.keys())
+            max_y = start_y  # Para controlar onde começa a seção de listas
+
+            # Primeiro, desenhar todos os caminhões
             for trip_num in sorted_trip_numbers:
-                trip_vol = best_overall_trip_volumes[trip_num]
+                trip_items = trip_to_items[trip_num]
+                trip_vol = sum(vol for _, vol in trip_items)
 
                 # Desenhar Caminhão
                 truck_rect = pygame.Rect(
@@ -241,7 +252,7 @@ def run_genetic_algorithm(
                     f"Viagem {trip_num}: {trip_vol}/{truck_capacity}", True, BLACK)
                 screen.blit(trip_info_text, (current_x, current_y - 25))
 
-                # Visualizar itens dentro do caminhão (simplificado)
+                # Visualizar barra de preenchimento
                 fill_percentage = min(1.0, trip_vol / truck_capacity)
                 fill_width = int(truck_width * fill_percentage)
                 fill_rect = pygame.Rect(
@@ -249,15 +260,86 @@ def run_genetic_algorithm(
 
                 fill_color = GREEN if fill_percentage <= 0.9 else (
                     255, 165, 0)  # Laranja se quase cheio
-                if fill_percentage > 1.0:  # Não deve acontecer se a solução for válida
+                if fill_percentage > 1.0:
                     fill_color = RED
                 pygame.draw.rect(screen, fill_color, fill_rect)
 
-                # Mover para a próxima posição do caminhão
+                # Atualizar posição para próximo caminhão
                 current_x += truck_width + truck_padding
                 if current_x + truck_width > SCREEN_WIDTH:
                     current_x = start_x
-                    current_y += truck_height + truck_padding + 30
+                    current_y += truck_height + truck_padding
+                    max_y = max(max_y, current_y)
+
+            # Seção de listas de itens
+            max_y += truck_height + 60  # Espaço extra após os caminhões
+            items_section_text = big_font.render(
+                "Lista de Itens por Viagem:", True, BLUE)
+            screen.blit(items_section_text, (start_x, max_y))
+            max_y += 40
+
+            # Configurações para a lista de itens
+            # Fonte menor para os itens
+            small_font = pygame.font.Font(None, 20)
+            line_height = 25  # Reduzido para ocupar menos espaço vertical
+            trip_padding = 20
+            list_x = start_x
+            list_y = max_y
+            items_per_line = 15  # Número máximo de itens por linha
+            # Largura máxima para uma linha de itens
+            max_line_width = SCREEN_WIDTH - list_x - 50
+
+            # Mostrar listas de itens
+            for trip_num in sorted_trip_numbers:
+                trip_items = trip_to_items[trip_num]
+                trip_vol = sum(vol for _, vol in trip_items)
+
+                # Título da viagem
+                trip_header = font.render(
+                    f"Viagem {trip_num} ({trip_vol}/{truck_capacity}):", True, BLACK)
+                screen.blit(trip_header, (list_x, list_y))
+                header_width = trip_header.get_width()
+
+                # Ordenar itens por volume
+                sorted_items = sorted(
+                    trip_items, key=lambda x: x[1], reverse=True)
+
+                # Dividir itens em linhas
+                current_line = []
+                current_line_text = ""
+                item_y = list_y
+
+                for idx, (item_idx, volume) in enumerate(sorted_items):
+                    item_str = f"{item_idx}({volume})"
+                    if idx < len(sorted_items) - 1:
+                        item_str += ", "
+
+                    # Verificar se precisamos começar uma nova linha
+                    test_line = current_line_text + item_str
+                    test_surface = small_font.render(test_line, True, BLACK)
+
+                    if test_surface.get_width() + header_width + 20 > max_line_width and current_line_text:
+                        # Renderizar linha atual
+                        line_surface = small_font.render(
+                            current_line_text, True, BLACK)
+                        screen.blit(
+                            line_surface, (list_x + header_width + 10, item_y + 5))
+                        # Preparar próxima linha
+                        item_y += line_height
+                        current_line_text = item_str
+                    else:
+                        current_line_text = test_line
+
+                # Renderizar última linha
+                if current_line_text:
+                    line_surface = small_font.render(
+                        current_line_text, True, BLACK)
+                    screen.blit(
+                        line_surface, (list_x + header_width + 10, item_y + 5))
+                    item_y += line_height
+
+                # Atualizar posição para próxima viagem
+                list_y = item_y + line_height // 2  # Espaço extra entre viagens
 
         if ga_step_counter >= num_generations:
             final_text = big_font.render("GA Finalizado!", True, RED)
@@ -273,15 +355,15 @@ def run_genetic_algorithm(
 # --- Bloco de execução principal para rodar o GA com Pygame ---
 if __name__ == "__main__":
     # Definir parâmetros do GA
-    NUM_TOTAL_ITEMS = 100
+    NUM_TOTAL_ITEMS = 200
     MAX_ITEM_VOL = 20
     TRUCK_CAPACITY = 100
-    POPULATION_SIZE = 200  # Aumentado para maior diversidade
+    POPULATION_SIZE = 10  # Aumentado para maior diversidade
     NUM_GENERATIONS = 1000000
-    CROSSOVER_RATE = 0.85
-    MUTATION_RATE = 0.08
-    TOURNAMENT_SIZE = 4
-    NUM_ELITE_INDIVIDUALS = 3  # Aumentado para preservar mais soluções boas
+    CROSSOVER_RATE = 0.85  # Reduzido para dar mais chance à mutação
+    MUTATION_RATE = 0.08  # Aumentado para maior exploração
+    TOURNAMENT_SIZE = 4  # Reduzido para diminuir a pressão seletiva
+    NUM_ELITE_INDIVIDUALS = 0  # Aumentado para preservar mais soluções boas
 
     print("Iniciando Algoritmo Genético com Visualização Pygame...")
     run_genetic_algorithm(

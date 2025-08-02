@@ -100,7 +100,7 @@ def calculate_fitness(individual_plan, all_item_volumes, truck_capacity):
         }
 
     # Mapear volumes por viagem
-    for item_index, assigned_trip in enumerate(individual_plan):
+    for item_index, assigned_trip in enumerate(fix_trip_sequence(individual_plan)):
         # Validar tipo e valor de assigned_trip
         if not isinstance(assigned_trip, (int, float)) or isinstance(assigned_trip, list):
             return {
@@ -191,10 +191,9 @@ def generate_initial_individuals(population, individuals_number, truck_volume, t
         attempts = 0
         while True:
             attempts += 1
-            if attempts > 10000:  # Safety break to prevent infinite loops for impossible setups
-                print(
-                    f"ALERTA: Não foi possível gerar um indivíduo inicial válido após {attempts} tentativas. Verifique parâmetros GA ou volumes/capacidades.")
-                return []  # Return empty list to signal failure
+            if attempts > 10000:
+                raise ValueError(
+                    f"Unable to generate a valid initial individual after {attempts} attempts. Check parameters or volumes/capacities.")
 
             current_individual = [0] * num_items
 
@@ -230,8 +229,6 @@ def generate_initial_individuals(population, individuals_number, truck_volume, t
                 break
 
         initial_individuals.append(current_individual)
-
-    print(initial_individuals)
 
     return initial_individuals
 
@@ -559,4 +556,20 @@ def check_and_merge_trips(individual, item_volumes, truck_capacity):
             if improved:
                 break
 
-    return individual
+    return fix_trip_sequence(individual)
+
+
+def fix_trip_sequence(individual):
+    """
+    Corrige a sequência de viagens para garantir que não haja números pulados.
+    Por exemplo, se tivermos viagens [0, 2, 4, 7], vai reorganizar para [0, 1, 2, 3].
+    """
+    if not individual:
+        return individual
+
+    # Criar mapeamento das viagens antigas para as novas
+    unique_trips = sorted(set(individual))
+    trip_mapping = {old: new for new, old in enumerate(unique_trips)}
+
+    # Aplicar o mapeamento para corrigir a sequência
+    return [trip_mapping[trip] for trip in individual]
